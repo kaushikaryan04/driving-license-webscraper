@@ -1,0 +1,137 @@
+
+from bs4 import BeautifulSoup
+from PIL import Image
+import requests
+from io import BytesIO
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+
+
+url = 'https://parivahan.gov.in/rcdlstatus/?pur_cd=101'
+driver = webdriver.Chrome()
+driver.get(url)
+
+html_content = driver.page_source
+soup = BeautifulSoup(html_content , "html.parser")
+input_fields = soup.find_all('input')
+
+
+def show_image() :
+    captcha_img = soup.find("img" , id = "form_rcdl:j_idt31:j_idt36")
+    image_url = "https://parivahan.gov.in"+captcha_img.get("src")
+    resp = requests.get(image_url)
+    image_conent = resp.content
+    image = Image.open(BytesIO(image_conent))
+    image.show()
+
+form_data = {
+    "dl_no" : {
+        "value"  : "" ,
+        "html_id" : "form_rcdl:tf_dlNO"
+    } ,
+    "dob" : {
+        "value" : "" ,
+        "html_id" : "form_rcdl:tf_dob_input"
+
+    } ,
+    "captcha" : {
+        "value" : "" ,
+        "html_id" : "form_rcdl:j_idt31:CaptchaID"
+    }
+}
+dl_no = input("  Enter Driving License No.  ")
+dob = input("  enter date of birth  ")
+show_image()
+captcha_val = input("  enter captcha value  ")
+form_data["dl_no"]["value"] = dl_no
+form_data["dob"]["value"] = dob
+form_data["captcha"]["value"] = captcha_val
+
+
+
+
+dl_tag = driver.find_element(By.ID, form_data["dl_no"]["html_id"])
+dl_tag.send_keys(form_data["dl_no"]["value"])
+
+dob_tag = driver.find_element(By.ID, form_data["dob"]["html_id"])
+driver.execute_script("arguments[0].removeAttribute('readonly')", dob_tag)
+dob_tag.send_keys(form_data["dob"]["value"])
+
+captcha_tag = driver.find_element(By.ID, form_data["captcha"]["html_id"])
+captcha_tag.send_keys(form_data["captcha"]["value"])
+
+print(dob_tag.text)
+
+button = driver.find_element(By.ID, "form_rcdl:j_idt41")
+button.click()
+
+try :
+    WebDriverWait(driver, 5 ).until(EC.url_changes(driver.current_url))
+except TimeoutException :
+    print("Took too much time to load page try again Limit is 10 seconds ")
+
+new_page_source = driver.page_source
+
+soup = BeautifulSoup(new_page_source , "lxml")
+result = {}
+
+tr_tags = soup.find_all("tr" , limit= 16)
+key = tr_tags[0].find("span" , class_ = "font-bold").text
+value = tr_tags[0].find("span").find_next().text
+result[key] = value
+del tr_tags[0]
+
+result.update({"Driving License Valdity" : {
+    "Transport" : {
+        "from" : "",
+        "to" : ""
+    },
+    "Non-Transport" : {
+        "from" : "" ,
+        "to" : ""
+    }
+}
+}
+)
+result.update({"class_of_vehicle_details" : [] } )
+
+for i , tr in enumerate(tr_tags) :
+    # print(result)
+    if i <= 7 :
+        key = tr.find("span")
+        value = key.find_next().text
+        result[key.text] = value
+    elif i <= 9 :
+       if i == 8 :
+          t = "Transport"
+       else :
+          t = "Non-Transport"
+
+       for j , td in enumerate(tr.find_all("td")) :
+            # print(len(td))
+            if j == 0 :
+                continue
+            elif j == 1  :
+                result["Driving License Valdity"][t]["from"] = td.text[6:]
+            elif j ==2 :
+                result["Driving License Valdity"][t]["to"] = td.text[5:]
+    elif i == 10 :
+        keys = tr.find_all("span" , class_ = "font-bold")
+        value1 = keys[0].find_next().text
+        value2 = keys[1].find_next().text
+        result[keys[0].text] = value1
+        result[keys[1].text] = value2
+    elif i >= 12 :
+        # result["class_of_vehicle_details"]
+        values = tr.find_all("td")
+        temp = {
+            "COV Category" : values[0].text ,
+            "Class Of Vehicle" : values[1].text ,
+            "COV Issue Date" : values[2].text
+        }
+        result["class_of_vehicle_details"].append(temp)
+
+print(result)
